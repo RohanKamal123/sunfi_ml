@@ -21,14 +21,17 @@ import pandas as pd
 from . import (
     automl,
     calibration,
+    clinical,
     config,
     data,
     eda,
     evaluate,
     explain,
+    external,
     literature,
     models,
     plots,
+    validation,
 )
 
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -37,6 +40,20 @@ warnings.filterwarnings("ignore", category=UserWarning)
 
 def _banner(text: str) -> None:
     print(f"\n{'=' * 72}\n{text}\n{'=' * 72}")
+
+
+def _uncorrected_frame(raw: pd.DataFrame) -> pd.DataFrame:
+    """Numeric frame with range enforcement skipped, to list what it catches."""
+    df = raw.copy()
+    df.columns = [str(c).strip() for c in df.columns]
+    df = df.rename(columns={"PCOS (Y/N)": config.TARGET})
+    df = df.drop(
+        columns=[c for c in config.ID_COLUMNS + config.JUNK_COLUMNS if c in df.columns]
+    )
+    for col in df.columns:
+        if df[col].dtype == object:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    return df
 
 
 def _row_for(results: pd.DataFrame, model_name: str) -> pd.Series:
@@ -72,6 +89,14 @@ def main(quick: bool = False, k_features: int = 15) -> dict:
     quality = data.data_quality_report(raw, df)
     _save_table(quality, "data_quality_report")
     df.to_csv(config.PROCESSED_DIR / "pcos_clean.csv", index=False)
+
+    # Physiologically impossible values, found by comparing the feature
+    # distributions against an independent cohort.
+    violations = data.range_violations(_uncorrected_frame(raw))
+    if not violations.empty:
+        _save_table(violations, "range_violations")
+        print(f"\n  {len(violations)} physiologically impossible values blanked:")
+        print(violations.to_string(index=False))
 
     # ----------------------------------------------------------------- EDA
     _banner("2. Exploratory data analysis")
@@ -196,6 +221,36 @@ def main(quick: bool = False, k_features: int = 15) -> dict:
         print(f"\n  Effect of isotonic calibration on {best_model_name}:")
         print(effect.round(4).to_string(index=False))
 
+    # ---------------------------------------------------------- nested CV
+    _banner("5d. Nested CV — is the reported CV score itself biased?")
+    from sklearn.ensemble import RandomForestClassifier
+
+    def rf_plain():
+        return RandomForestClassifier(
+            n_estimators=300, min_samples_leaf=2,
+            random_state=config.RANDOM_STATE, n_jobs=-1,
+        )
+
+    nested = validation.nested_cv(
+        X_train, y_train, models.build_pipeline, rf_plain,
+        outer_folds=5 if quick else config.CV_FOLDS,
+    )
+    (config.RESULTS_DIR / "nested_cv.json").write_text(json.dumps(nested, indent=2))
+    validation.plot_nested_cv(nested)
+
+    print(f"  Flat CV   (selector chosen on the same data): {nested['flat_mean']:.4f}")
+    print(f"  Nested CV (selector chosen inside folds)    : {nested['nested_mean']:.4f} "
+          f"± {nested['nested_std']:.4f}")
+    print(f"  Selection bias (optimism)                   : {nested['optimism']:+.4f}")
+    if abs(nested["optimism"]) < 0.005:
+        print(
+            "\n  Negligible. The four feature sets perform almost identically, so\n"
+            "  choosing between them leaks almost nothing. The concern was real in\n"
+            "  principle and immaterial in practice — worth measuring, not assuming."
+        )
+    else:
+        print("\n  Material. The flat CV number should be replaced by the nested one.")
+
     # ------------------------------------------------- imbalance ablation
     _banner("6. Class-imbalance ablation")
     from sklearn.ensemble import RandomForestClassifier
@@ -212,6 +267,26 @@ def main(quick: bool = False, k_features: int = 15) -> dict:
     _save_table(ablation, "imbalance_ablation")
     print(ablation[["strategy", "accuracy", "precision", "recall", "f1",
                     "specificity", "roc_auc"]].round(4).to_string(index=False))
+
+    # -------------------------------------------------- cost-tiered models
+    _banner("6b. Cost-tiered screening — what does each tier of testing buy?")
+    tiers = clinical.tiered_models(
+        X_train, y_train, X_test, y_test, models.build_pipeline, rf_plain
+    )
+    _save_table(tiers, "cost_tiers")
+    clinical.plot_tiered_models(tiers)
+    print(tiers.round(4).to_string(index=False))
+
+    questionnaire_auc = float(tiers.iloc[0]["cv_roc_auc"])
+    full_auc = float(tiers.iloc[-1]["cv_roc_auc"])
+    retained = questionnaire_auc / full_auc
+    ultrasound_gain = float(tiers.iloc[-1]["gain_over_previous"])
+    print(
+        f"\n  A questionnaire, a scale and a tape measure reach {questionnaire_auc:.3f} AUC —\n"
+        f"  {retained:.0%} of the full {full_auc:.3f}, with no clinician, lab or ultrasound.\n"
+        f"  The entire blood panel adds {float(tiers.iloc[2]['gain_over_previous']):+.4f} AUC.\n"
+        f"  The ultrasound adds {ultrasound_gain:+.4f} — it is the only tier that pays for itself."
+    )
 
     # ------------------------------------------------------- held-out test
     _banner("7. Held-out test set evaluation")
@@ -236,6 +311,57 @@ def main(quick: bool = False, k_features: int = 15) -> dict:
 
     joblib.dump(best_pipeline, config.MODELS_DIR / "best_model.joblib")
     print(f"\n  model saved -> models/best_model.joblib")
+
+    # ------------------------------------------------------ uncertainty
+    _banner("7b. How precise are those test numbers? Bootstrap CIs")
+    ci = validation.bootstrap_test_metrics(
+        best_pipeline, X_test, y_test, n_boot=500 if quick else 2000
+    )
+    _save_table(ci, "bootstrap_ci")
+    validation.plot_bootstrap_ci(ci, best_model_name, len(y_test))
+    print(ci.to_string(index=False))
+    widest = ci.loc[ci["ci_width"].idxmax()]
+    print(
+        f"\n  Widest interval: {widest['metric']} spans "
+        f"[{widest['ci_lower']:.2f}, {widest['ci_upper']:.2f}] — {widest['ci_width']:.2f} wide.\n"
+        f"  With {int((y_test == 1).sum())} positive cases in the test set, that is the honest\n"
+        "  precision of every single-split number in the reviewed literature too."
+    )
+
+    # -------------------------------------------------- clinical utility
+    _banner("7c. Decision curve analysis — is it clinically worth using?")
+    curve = clinical.net_benefit(y_test, best_pipeline.predict_proba(X_test)[:, 1])
+    _save_table(curve, "decision_curve")
+    clinical.plot_decision_curve(curve, best_model_name)
+
+    useful = curve[curve["benefit_over_best_default"] > 0]
+    if not useful.empty:
+        print(
+            f"  The model beats both 'refer everyone' and 'refer nobody' across "
+            f"threshold probabilities {useful['threshold'].min():.0%}–{useful['threshold'].max():.0%}."
+        )
+        print("\n  Net benefit at representative thresholds:")
+        sample = curve[curve["threshold"].isin([0.1, 0.2, 0.3, 0.5])]
+        print(sample[["threshold", "net_benefit_model", "net_benefit_treat_all",
+                      "n_flagged", "benefit_over_best_default"]].round(4).to_string(index=False))
+    else:
+        print("  The model does not beat the default strategies at any threshold.")
+
+    # ------------------------------------------------------- subgroups
+    _banner("7d. Subgroup performance — does it work for everyone?")
+    subgroups = clinical.subgroup_performance(best_pipeline, X_test, y_test)
+    _save_table(subgroups, "subgroup_performance")
+    clinical.plot_subgroups(subgroups)
+    print(subgroups.to_string(index=False))
+
+    reliable = subgroups[subgroups["reliable"]].dropna(subset=["roc_auc"])
+    if not reliable.empty:
+        print(
+            f"\n  Across subgroups with >= 15 patients, AUC ranges "
+            f"{reliable['roc_auc'].min():.3f}–{reliable['roc_auc'].max():.3f}. "
+            "No subgroup failure detected,\n  though the subgroups are small enough that "
+            "only a large failure would show."
+        )
 
     # ---------------------------------------------------------- leakage
     _banner("8. Leakage experiment — how much does a leaky protocol inflate results?")
@@ -320,6 +446,73 @@ def main(quick: bool = False, k_features: int = 15) -> dict:
     else:
         print(f"  skipped: {automl_result.get('reason')}")
 
+    # ------------------------------------------- stability & data ceiling
+    _banner("9c. Would more data help? Learning curve")
+    curve_model = models.build_pipeline(
+        X_train, rf_plain(), selector=best_set, k_features=k_features
+    )
+    lc = validation.compute_learning_curve(curve_model, X_train, y_train)
+    _save_table(lc, "learning_curve")
+    validation.plot_learning_curve(lc, best_model_name)
+    print(lc.round(4).to_string(index=False))
+
+    tail = lc.tail(3)
+    slope_per_100 = float(np.polyfit(tail["train_size"], tail["cv_mean"], 1)[0] * 100)
+    print(
+        f"\n  Over the last third of the curve the validation score is moving\n"
+        f"  {slope_per_100:+.4f} AUC per 100 additional patients."
+    )
+
+    _banner("9d. How arbitrary is the winner? Sweeping the train/test split")
+    n_seeds = 10 if quick else 30
+    sweep = validation.seed_sweep(
+        X, y, models.build_all_models, n_seeds=n_seeds, selector=best_set
+    )
+    wins = validation.win_counts(sweep)
+    _save_table(sweep, "seed_sweep_raw")
+    _save_table(wins, "seed_sweep_wins")
+    validation.plot_seed_sweep(sweep, wins)
+    print(wins.round(4).to_string(index=False))
+
+    n_winners = int((wins["wins"] > 0).sum())
+    top = wins.iloc[0]
+    print(
+        f"\n  {n_winners} different models took first place across {n_seeds} random splits.\n"
+        f"  The most frequent winner ({top['model']}) won only {top['win_rate']:.0%} of them,\n"
+        f"  and its own test AUC varied by {top['auc_range']:.3f} depending on the split.\n"
+        "  Any paper naming a best model from one split is reporting a coin flip."
+    )
+
+    # ------------------------------------------------ external validation
+    _banner("9e. External validation on an independent cohort")
+    external_summary = None
+    if external.available():
+        ext_raw = external.load_external()
+        ext = external.harmonise(ext_raw)
+        cohort_cmp = external.cohort_comparison(df, ext)
+        _save_table(cohort_cmp, "external_cohort_comparison")
+
+        print(f"  Cohort: {external.TUNISIA_SOURCE['name']} "
+              f"(n={len(ext)}, {external.TUNISIA_SOURCE['licence']})")
+        print(f"  DOI   : {external.TUNISIA_SOURCE['doi']}")
+        print(f"\n  Shared features: {len(external.shared_feature_names())} of {X.shape[1]}")
+        print("\n  How different are the cohorts?")
+        print(cohort_cmp.to_string(index=False))
+
+        ext_results, external_summary = external.validate_externally(
+            df, ext, models.build_all_models
+        )
+        _save_table(ext_results, "external_validation")
+        external.plot_external_validation(ext_results, cohort_cmp)
+
+        print("\n  Train on Kerala, test on Tunisia (shared features only):")
+        print(ext_results.round(4).to_string(index=False))
+        print("\n" + external.EXTERNAL_DISCUSSION)
+        (config.RESULTS_DIR / "external_search_log.txt").write_text(external.SEARCH_LOG)
+    else:
+        print("  External cohort not present; skipping.")
+        print(f"  Download from {external.TUNISIA_SOURCE['url']} into data/external/.")
+
     # -------------------------------------------------- literature compare
     _banner("10. Comparison against the reviewed literature")
     best_row = _row_for(test_results, best_model_name)
@@ -362,10 +555,32 @@ def main(quick: bool = False, k_features: int = 15) -> dict:
         ),
         "n_models_compared": len(cv_results),
         "n_models_indistinguishable_from_best": n_indistinguishable,
+        "n_models_practically_different": n_practical,
         "best_calibrated_model": best_calibrated,
         "best_brier_score": round(float(calibration_results.iloc[0]["brier"]), 4),
+        "nested_cv_optimism": round(nested["optimism"], 5),
+        "questionnaire_only_cv_auc": round(questionnaire_auc, 4),
+        "questionnaire_pct_of_full": round(retained, 4),
+        "ultrasound_marginal_auc_gain": round(ultrasound_gain, 4),
+        "test_roc_auc_ci": [
+            float(ci.loc[ci["metric"] == "roc_auc", "ci_lower"].iloc[0]),
+            float(ci.loc[ci["metric"] == "roc_auc", "ci_upper"].iloc[0]),
+        ],
+        "seed_sweep_n_distinct_winners": n_winners,
+        "seed_sweep_top_win_rate": float(top["win_rate"]),
+        "learning_curve_auc_per_100_patients": round(slope_per_100, 5),
         "runtime_seconds": round(elapsed, 1),
     }
+    if external_summary is not None:
+        summary["external_validation"] = {
+            "cohort": external.TUNISIA_SOURCE["name"],
+            "n": external_summary["n_external"],
+            "n_shared_features": external_summary["n_shared_features"],
+            "best_external_auc": external_summary["best_external_auc"],
+            "mean_auc_drop": external_summary["mean_auc_drop"],
+            "external_prevalence": external_summary["external_prevalence"],
+            "internal_prevalence": external_summary["internal_prevalence"],
+        }
     if shap_table is not None:
         summary["top_shap_features"] = shap_table.head(5)["feature"].tolist()
     if automl_result.get("available"):

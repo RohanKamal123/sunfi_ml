@@ -1,0 +1,9 @@
+grouping,subgroup,n,n_pcos,prevalence,reliable,accuracy,recall,specificity,roc_auc
+Age,<25,9,5,0.556,False,0.889,0.8,1.0,0.95
+Age,25-29,42,13,0.31,True,0.881,0.769,0.931,0.918
+Age,30-34,32,13,0.406,True,0.969,0.923,1.0,0.955
+Age,35+,26,5,0.192,True,0.962,0.8,1.0,0.99
+BMI,Underweight,7,2,0.286,False,1.0,1.0,1.0,1.0
+BMI,Normal,53,17,0.321,True,0.943,0.824,1.0,0.925
+BMI,Overweight,41,13,0.317,True,0.878,0.769,0.929,0.951
+BMI,Obese,8,4,0.5,False,1.0,1.0,1.0,1.0

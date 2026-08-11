@@ -1,0 +1,36 @@
+Candidate external cohorts, and why each was accepted or rejected
+-----------------------------------------------------------------
+
+The main risk in this exercise is that many "PCOS datasets" in public
+repositories are re-uploads of the same Kerala data used for training.
+Validating on a re-upload would look like external validation while being
+nothing of the kind, so every candidate was checked against the training data
+before use.
+
+ACCEPTED
+  Sfax, Tunisia case-control cohort (Mendeley, doi:10.17632/tw34c7hv7z.1)
+    88 patients, 21 variables, CC BY 4.0. Different country, different
+    hospital, different endocrine panel, near-balanced classes. Shares no
+    rows and only 8 features with the training data. Genuinely independent.
+
+REJECTED
+  Kaggle "polycystic-ovary-syndrome-pcos" (Kottarathil)
+    This IS the training data.
+
+  Numerous Kaggle re-uploads (various uploaders)
+    Identical 541 rows and identical column names as the training set.
+    Re-uploads, not independent cohorts.
+
+  figshare "PCOS Dataset" (doi:10.6084/m9.figshare.27682557)
+    12,680 ultrasound images. No tabular clinical variables, so no feature
+    overlap with a model trained on measurements. Would require a different
+    model class entirely.
+
+  Zenodo record 14575651
+    A survey *about* PCOS datasets and detection tools, not patient records.
+
+  IEEE DataPort "PCOS data"
+    Access-restricted; could not verify provenance or contents.
+
+  Boston Medical Center EHR cohort (Paper 2, n = 30,601)
+    Not public. Protected health information under institutional control.

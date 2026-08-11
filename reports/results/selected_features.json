@@ -18,14 +18,15 @@
     "Avg. F size (R) (mm)",
     "Marraige Status (Yrs)",
     "Endometrium (mm)",
+    "Pulse rate(bpm)",
     "LH(mIU/mL)"
   ],
   "chi2": [
     "Weight (Kg)",
+    "BMI",
     "Cycle length(days)",
     "Waist(inch)",
     "AMH(ng/mL)",
-    "Vit D3 (ng/mL)",
     "Follicle No. (L)",
     "Follicle No. (R)",
     "Weight gain(Y/N)",
@@ -38,7 +39,6 @@
     "Cycle_Irregular"
   ],
   "rfe": [
-    "Pulse rate(bpm)",
     "Marraige Status (Yrs)",
     "Follicle No. (L)",
     "Follicle No. (R)",
@@ -52,6 +52,7 @@
     "hair growth(Y/N)",
     "Skin darkening (Y/N)",
     "Pimples(Y/N)",
+    "Fast food (Y/N)",
     "Cycle_Irregular"
   ]
 }

@@ -89,8 +89,43 @@ def clean(df: pd.DataFrame) -> pd.DataFrame:
         if col in df.columns:
             df[col] = df[col].replace(0, np.nan)
 
+    # 8. Out-of-range values. See config.PLAUSIBLE_RANGES for why these exist
+    #    and why they are blanked rather than corrected.
+    df = enforce_plausible_ranges(df)
+
     df[config.TARGET] = df[config.TARGET].astype(int)
     return df.reset_index(drop=True)
+
+
+def enforce_plausible_ranges(df: pd.DataFrame) -> pd.DataFrame:
+    """Blank values that fall outside physiologically possible bounds."""
+    df = df.copy()
+    for col, (low, high) in config.PLAUSIBLE_RANGES.items():
+        if col in df.columns:
+            df.loc[(df[col] < low) | (df[col] > high), col] = np.nan
+    return df
+
+
+def range_violations(df: pd.DataFrame) -> pd.DataFrame:
+    """List every value that :func:`enforce_plausible_ranges` would blank.
+
+    Used to document the data-quality problems rather than fix them silently.
+    """
+    rows = []
+    for col, (low, high) in config.PLAUSIBLE_RANGES.items():
+        if col not in df.columns:
+            continue
+        bad = df[(df[col] < low) | (df[col] > high)]
+        for idx, value in bad[col].items():
+            rows.append(
+                {
+                    "row": int(idx),
+                    "feature": config.pretty(col),
+                    "value": value,
+                    "plausible_range": f"{low}-{high}",
+                }
+            )
+    return pd.DataFrame(rows)
 
 
 def load_clean(path=None) -> pd.DataFrame:

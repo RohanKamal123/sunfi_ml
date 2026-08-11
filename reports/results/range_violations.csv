@@ -1,0 +1,14 @@
+row,feature,value,plausible_range
+223,Pulse rate (bpm),18.0,35-200
+296,Pulse rate (bpm),13.0,35-200
+39,Cycle length (days),0.0,1-60
+161,BP systolic,12.0,70-250
+200,BP diastolic,8.0,40-150
+329,FSH,5052.0,0.1-200
+455,LH,2018.0,0.01-200
+267,AMH,66.0,0.01-50
+191,Vitamin D3,6014.66,1-150
+195,Vitamin D3,5418.6,1-150
+216,Vitamin D3,0.0,1-150
+39,Endometrium (mm),0.0,1-30
+82,Endometrium (mm),0.0,1-30

@@ -4,4 +4,4 @@ paper,best_model,dataset,reported_accuracy,reported_auc,n_samples,external_valid
 Paper 3 — Bhat (2021),CatBoost,Kaggle PCOS (541),0.957,,541,False,not stated,single train/test split,False,False,Paper 3 (CatBoost),,False
 Paper 4 — Traditional ML + DL (2024),Stacking Classifier,Kaggle PCOS (541),0.9932,,541,False,not stated,single train/test split,False,False,Paper 4 (Stacking Classifier),,False
 "Paper 5 — RFE + XAI (Elmannai et al., 2023)",Stacking + RFE,Kaggle PCOS (541),0.9887,,541,False,not stated,single train/test split,True,False,Paper 5 (Stacking + RFE),,False
-This project,Random Forest,Kaggle PCOS (541),0.9174311926605505,0.9417808219178083,541,False,SMOTE inside CV folds,repeated stratified 10-fold CV + untouched held-out test set,True,True,This project (Random Forest),0.03632286752232601,False
+This project,Stacking Ensemble,Kaggle PCOS (541),0.926605504587156,0.9452054794520548,541,False,SMOTE inside CV folds,repeated stratified 10-fold CV + untouched held-out test set,True,True,This project (Stacking Ensemble),0.041474694345912846,False

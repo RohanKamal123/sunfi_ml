@@ -14,7 +14,17 @@ import pandas as pd
 import pytest
 from sklearn.model_selection import StratifiedKFold, cross_val_score
 
-from src import calibration, config, data, evaluate, features, models
+from src import (
+    calibration,
+    clinical,
+    config,
+    data,
+    evaluate,
+    external,
+    features,
+    models,
+    validation,
+)
 
 
 # --------------------------------------------------------------------------
@@ -62,7 +72,9 @@ def test_malformed_text_values_became_nan(clean_df):
     # The workbook stores "1.99." in beta-HCG II and "a" in AMH. Both should
     # be coerced to NaN rather than crashing or silently becoming a string.
     assert clean_df["II    beta-HCG(mIU/mL)"].isna().sum() == 1
-    assert clean_df["AMH(ng/mL)"].isna().sum() == 1
+    # AMH ends up with two blanks: the literal "a", plus a value of 66 ng/mL
+    # that range enforcement rejects as implausible.
+    assert clean_df["AMH(ng/mL)"].isna().sum() == 2
 
 
 def test_cycle_recoded_to_binary_indicator(clean_df):
@@ -382,6 +394,173 @@ def re_fullmatch_identifier(name: str) -> bool:
     import re
 
     return re.fullmatch(r"[0-9a-zA-Z_]+", name) is not None
+
+
+# --------------------------------------------------------------------------
+# Physiological range enforcement
+# --------------------------------------------------------------------------
+def test_impossible_values_are_blanked(clean_df):
+    """The values a cross-cohort comparison exposed must not survive cleaning."""
+    # Blood pressures of 12/80 and 120/8 are digit-drops, not measurements.
+    assert (clean_df["BP _Systolic (mmHg)"].dropna() >= 70).all()
+    assert (clean_df["BP _Diastolic (mmHg)"].dropna() >= 40).all()
+    # Hormone values off by three orders of magnitude.
+    assert (clean_df["FSH(mIU/mL)"].dropna() <= 200).all()
+    assert (clean_df["LH(mIU/mL)"].dropna() <= 200).all()
+    assert (clean_df["Vit D3 (ng/mL)"].dropna() <= 150).all()
+    # A pulse of 13 bpm is not compatible with being alive and in a clinic.
+    assert (clean_df["Pulse rate(bpm)"].dropna() >= 35).all()
+
+
+def test_range_violations_lists_what_would_be_blanked():
+    frame = pd.DataFrame(
+        {
+            "BP _Systolic (mmHg)": [120, 12, 130],
+            "FSH(mIU/mL)": [5.0, 6.0, 5052.0],
+        }
+    )
+    violations = data.range_violations(frame)
+    assert len(violations) == 2
+    assert set(violations["value"]) == {12, 5052.0}
+
+
+def test_enforce_ranges_leaves_valid_values_untouched():
+    frame = pd.DataFrame({"BMI": [18.0, 24.0, 31.0]})
+    out = data.enforce_plausible_ranges(frame)
+    pd.testing.assert_frame_equal(frame, out)
+
+
+# --------------------------------------------------------------------------
+# Cost tiers
+# --------------------------------------------------------------------------
+def test_feature_tiers_are_cumulative():
+    tiers = list(config.FEATURE_TIERS.values())
+    for smaller, larger in zip(tiers, tiers[1:]):
+        assert set(smaller) <= set(larger), "each tier must contain the previous one"
+
+
+def test_questionnaire_tier_excludes_lab_and_ultrasound():
+    """The whole point of the cheap tier is that it needs no equipment."""
+    cheap = set(config.FEATURE_TIERS["questionnaire"])
+    for expensive in config.TIER_LAB + config.TIER_ULTRASOUND:
+        assert expensive not in cheap
+
+
+def test_every_tier_feature_exists_in_the_data(xy):
+    X, _ = xy
+    known = set(X.columns)
+    for tier, columns in config.FEATURE_TIERS.items():
+        unknown = [c for c in columns if c not in known]
+        assert not unknown, f"tier {tier!r} names columns not in the data: {unknown}"
+
+
+# --------------------------------------------------------------------------
+# Decision curve analysis
+# --------------------------------------------------------------------------
+def test_net_benefit_of_perfect_model_equals_prevalence():
+    """A perfect classifier has no false positives, so NB = TP/n = prevalence."""
+    y_true = np.array([1] * 30 + [0] * 70)
+    y_proba = y_true.astype(float)
+    curve = clinical.net_benefit(y_true, y_proba, thresholds=[0.5])
+    assert curve.iloc[0]["net_benefit_model"] == pytest.approx(0.30)
+
+
+def test_treat_all_net_benefit_matches_formula():
+    y_true = np.array([1] * 30 + [0] * 70)
+    curve = clinical.net_benefit(y_true, np.full(100, 0.5), thresholds=[0.2])
+    # prevalence - (1 - prevalence) * odds = 0.3 - 0.7 * 0.25
+    assert curve.iloc[0]["net_benefit_treat_all"] == pytest.approx(0.3 - 0.7 * 0.25)
+
+
+def test_useless_model_does_not_beat_defaults():
+    """Random predictions should not add net benefit over treat-all/treat-none."""
+    rng = np.random.default_rng(0)
+    y_true = rng.binomial(1, 0.3, 400)
+    y_proba = rng.random(400)  # independent of the label
+    curve = clinical.net_benefit(y_true, y_proba)
+    assert curve["benefit_over_best_default"].max() < 0.05
+
+
+# --------------------------------------------------------------------------
+# Bootstrap CIs
+# --------------------------------------------------------------------------
+def test_bootstrap_ci_brackets_the_point_estimate(xy):
+    X, y = xy
+    X_train, X_test, y_train, y_test = evaluate.make_splits(X, y)
+    pipeline = models.build_pipeline(
+        X_train, models.build_classifiers()["Random Forest"], selector="chi2"
+    )
+    pipeline.fit(X_train, y_train)
+
+    ci = validation.bootstrap_test_metrics(pipeline, X_test, y_test, n_boot=200)
+    for _, row in ci.iterrows():
+        assert row["ci_lower"] <= row["estimate"] <= row["ci_upper"], row["metric"]
+        assert row["ci_width"] > 0
+
+
+# --------------------------------------------------------------------------
+# External validation
+# --------------------------------------------------------------------------
+def test_external_shared_features_exist_in_both(xy):
+    X, _ = xy
+    for column in external.shared_feature_names():
+        assert column in X.columns
+
+
+def test_external_excluded_features_have_documented_reasons():
+    """Silently dropping a feature is how incomparable data gets compared."""
+    assert external.EXCLUDED_FEATURES
+    for name, reason in external.EXCLUDED_FEATURES.items():
+        assert len(reason) > 40, f"{name} needs a real explanation, not a stub"
+
+
+@pytest.mark.skipif(not external.available(), reason="external cohort not downloaded")
+def test_external_cohort_is_not_a_reupload(clean_df):
+    """Guard against validating on a copy of the training data."""
+    ext = external.harmonise(external.load_external())
+    assert len(ext) != len(clean_df)
+
+    # No row of the external cohort may duplicate a training row on the
+    # shared features.
+    shared = external.shared_feature_names()
+    merged = ext[shared].round(3).merge(
+        clean_df[shared].round(3).drop_duplicates(), on=shared, how="inner"
+    )
+    assert len(merged) == 0, "external cohort shares rows with the training data"
+
+
+@pytest.mark.skipif(not external.available(), reason="external cohort not downloaded")
+def test_external_units_are_harmonised():
+    """Waist is cm upstream and inches here; a missed conversion is invisible."""
+    ext = external.harmonise(external.load_external())
+    waist = ext["Waist(inch)"].dropna()
+    # Converted inches land around 25-50; raw cm would land around 64-129.
+    assert 20 < waist.mean() < 55, f"waist looks unconverted: mean {waist.mean():.1f}"
+
+
+@pytest.mark.skipif(not external.available(), reason="external cohort not downloaded")
+def test_external_target_is_binary():
+    ext = external.harmonise(external.load_external())
+    assert set(ext[config.TARGET].unique()) <= {0, 1}
+
+
+# --------------------------------------------------------------------------
+# Subgroups
+# --------------------------------------------------------------------------
+def test_subgroup_sizes_sum_to_test_set(xy):
+    X, y = xy
+    X_train, X_test, y_train, y_test = evaluate.make_splits(X, y)
+    pipeline = models.build_pipeline(
+        X_train, models.build_classifiers()["Random Forest"], selector="chi2"
+    )
+    pipeline.fit(X_train, y_train)
+
+    subgroups = clinical.subgroup_performance(pipeline, X_test, y_test)
+    for grouping in subgroups["grouping"].unique():
+        total = subgroups.loc[subgroups["grouping"] == grouping, "n"].sum()
+        # Bands can drop rows with a missing value for the banding variable.
+        assert total <= len(y_test)
+        assert total > 0.8 * len(y_test)
 
 
 def test_threshold_sweep_is_monotone_in_recall(xy):

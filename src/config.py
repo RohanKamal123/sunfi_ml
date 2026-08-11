@@ -130,6 +130,119 @@ def pretty(column: str) -> str:
 
 
 # --------------------------------------------------------------------------
+# Physiologically plausible ranges
+# --------------------------------------------------------------------------
+# Values outside these bounds are recording errors, not measurements, and are
+# set to NaN so the pipeline's imputer handles them.
+#
+# Several of these were only discovered by comparing feature distributions
+# against an independent cohort (see src/external.py). Two blood-pressure
+# readings of 12/80 and 120/8 are obvious digit-drops from 120/80, and a few
+# hormone values are off by three orders of magnitude (FSH 5052, LH 2018,
+# vitamin D 6014). They are blanked rather than "corrected": inferring the
+# intended value would be guessing, and one imputed median is more honest
+# than a plausible-looking invention.
+PLAUSIBLE_RANGES = {
+    "Age (yrs)": (10, 70),
+    "Weight (Kg)": (25, 200),
+    "Height(Cm)": (120, 200),
+    "BMI": (10, 70),
+    "Pulse rate(bpm)": (35, 200),
+    "RR (breaths/min)": (8, 40),
+    "Hb(g/dl)": (4, 20),
+    "Cycle length(days)": (1, 60),
+    "BP _Systolic (mmHg)": (70, 250),
+    "BP _Diastolic (mmHg)": (40, 150),
+    "FSH(mIU/mL)": (0.1, 200),
+    "LH(mIU/mL)": (0.01, 200),
+    "PRL(ng/mL)": (0.1, 400),
+    "TSH (mIU/L)": (0.01, 100),
+    "AMH(ng/mL)": (0.01, 50),
+    "Vit D3 (ng/mL)": (1, 150),
+    "RBS(mg/dl)": (40, 600),
+    "Endometrium (mm)": (1, 30),
+    "Waist(inch)": (15, 70),
+    "Hip(inch)": (20, 80),
+}
+
+
+# --------------------------------------------------------------------------
+# Feature acquisition cost tiers
+# --------------------------------------------------------------------------
+# The project's stated motivation is that PCOS testing "may not always be easy
+# to access, affordable, or quick, especially in areas with limited healthcare
+# resources". These tiers make that testable: each adds a class of measurement
+# that costs more to obtain, so the model comparison shows what each tier of
+# investment actually buys in predictive terms.
+TIER_QUESTIONNAIRE = [
+    # Free: a form, a scale and a tape measure. No clinician, no equipment.
+    "Age (yrs)",
+    "Weight (Kg)",
+    "Height(Cm)",
+    "BMI",
+    "Waist(inch)",
+    "Hip(inch)",
+    "Waist:Hip Ratio",
+    "Cycle_Irregular",
+    "Cycle length(days)",
+    "Marraige Status (Yrs)",
+    "No. of aborptions",
+    "Pregnant(Y/N)",
+    "Weight gain(Y/N)",
+    "hair growth(Y/N)",
+    "Skin darkening (Y/N)",
+    "Hair loss(Y/N)",
+    "Pimples(Y/N)",
+    "Fast food (Y/N)",
+    "Reg.Exercise(Y/N)",
+]
+
+TIER_CLINIC = [
+    # Adds a basic clinic visit: vitals a nurse can take in minutes.
+    "Pulse rate(bpm)",
+    "RR (breaths/min)",
+    "BP _Systolic (mmHg)",
+    "BP _Diastolic (mmHg)",
+    "Blood Group",
+    "Hb(g/dl)",
+]
+
+TIER_LAB = [
+    # Adds a venous blood draw and an endocrine assay panel.
+    "FSH(mIU/mL)",
+    "LH(mIU/mL)",
+    "FSH/LH",
+    "TSH (mIU/L)",
+    "AMH(ng/mL)",
+    "PRL(ng/mL)",
+    "Vit D3 (ng/mL)",
+    "PRG(ng/mL)",
+    "RBS(mg/dl)",
+    "I   beta-HCG(mIU/mL)",
+    "II    beta-HCG(mIU/mL)",
+]
+
+TIER_ULTRASOUND = [
+    # Adds a transvaginal ultrasound and a trained sonographer.
+    "Follicle No. (L)",
+    "Follicle No. (R)",
+    "Avg. F size (L) (mm)",
+    "Avg. F size (R) (mm)",
+    "Endometrium (mm)",
+]
+
+# Cumulative tiers, cheapest first.
+FEATURE_TIERS = {
+    "questionnaire": TIER_QUESTIONNAIRE,
+    "+ clinic vitals": TIER_QUESTIONNAIRE + TIER_CLINIC,
+    "+ blood panel": TIER_QUESTIONNAIRE + TIER_CLINIC + TIER_LAB,
+    "+ ultrasound (all)": (
+        TIER_QUESTIONNAIRE + TIER_CLINIC + TIER_LAB + TIER_ULTRASOUND
+    ),
+}
+
+
+# --------------------------------------------------------------------------
 # Plotting
 # --------------------------------------------------------------------------
 FIG_DPI = 150

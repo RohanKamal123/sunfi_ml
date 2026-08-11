@@ -147,4 +147,31 @@ not report enough detail to tell, which is itself the finding. The honest
 claim this project can make is narrower and better supported: under a
 protocol where nothing downstream of the split can see the evaluation data,
 this is the performance the Kaggle PCOS dataset supports.
+
+Why the accuracy column is the least interesting one
+-----------------------------------------------------
+
+Ranking six studies by a single accuracy figure implies the differences mean
+something. Three results in this project say they largely do not:
+
+1. **The winner is a coin flip.** Re-splitting this dataset 30 times, every
+   one of nine algorithms took first place at least once, and the most
+   frequent winner managed 17%. Each model's own test AUC moves by 0.08-0.15
+   depending only on which patients land in the test set.
+
+2. **The intervals overlap everything.** Our test ROC-AUC of 0.94 carries a
+   95% bootstrap CI of roughly [0.87, 0.98], and recall spans [0.70, 0.94].
+   No reviewed paper reports an interval, but theirs would be similar --
+   the sample size is identical.
+
+3. **Nobody validated externally, and on this data nobody could.** Our own
+   attempt (see src/external.py) found that the only genuinely independent
+   public cohort shares 8 weak features with this one. The discriminating
+   features -- follicle counts and symptoms -- exist in no compatible public
+   dataset.
+
+So the useful comparison between these studies is not which number is
+highest. It is which studies state their protocol, report uncertainty,
+measure calibration, and check whether the model is clinically worth using.
+On that comparison the accuracy column is close to noise.
 """.strip()

@@ -1,4 +1,4 @@
 approach,test_accuracy,test_f1,test_roc_auc,interpretable,search_cost
-Hand-built pipeline (Random Forest),0.9174311926605505,0.8695652173913043,0.9417808219178083,yes (SHAP + fixed feature set),none
-AutoML / FLAML (rf),0.908256880733945,0.8529411764705882,0.937214611872146,harder (tuned black box),120s search
-difference (AutoML - hand-built),-0.00917431192660556,-0.01662404092071612,-0.004566210045662267,,
+Hand-built pipeline (Stacking Ensemble),0.926605504587156,0.8823529411764706,0.9452054794520548,yes (SHAP + fixed feature set),none
+AutoML / FLAML (rf),0.8990825688073395,0.8307692307692308,0.94558599695586,harder (tuned black box),120s search
+difference (AutoML - hand-built),-0.02752293577981646,-0.05158371040723975,0.0003805175038051889,,
