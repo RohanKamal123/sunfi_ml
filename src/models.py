@@ -27,6 +27,8 @@ from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestClassifier, StackingClassifier
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
+from sklearn.naive_bayes import GaussianNB
+from sklearn.neighbors import KNeighborsClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.svm import SVC
@@ -35,6 +37,16 @@ from xgboost import XGBClassifier
 from . import config
 from .data import feature_groups
 from .features import build_selector
+
+# CatBoost is an optional dependency: it is the model Paper 3 reports as its
+# best, so it is included when available, but the pipeline must still run
+# without it.
+try:
+    from catboost import CatBoostClassifier
+
+    HAS_CATBOOST = True
+except ImportError:  # pragma: no cover - depends on the environment
+    HAS_CATBOOST = False
 
 
 def build_preprocessor(X) -> ColumnTransformer:
@@ -77,7 +89,10 @@ def build_preprocessor(X) -> ColumnTransformer:
 
 
 def build_classifiers(random_state: int = config.RANDOM_STATE) -> dict:
-    """The five classifiers named in the project proposal.
+    """The four core classifiers named in the project proposal.
+
+    These are the models used as stacking base learners. The wider comparison
+    set is :func:`build_extended_classifiers`.
 
     ``class_weight="balanced"`` is deliberately *not* set on top of SMOTE.
     Doing both corrects the same 2:1 imbalance twice and pushes the models
@@ -111,8 +126,55 @@ def build_classifiers(random_state: int = config.RANDOM_STATE) -> dict:
     }
 
 
+def build_extended_classifiers(random_state: int = config.RANDOM_STATE) -> dict:
+    """Every algorithm in the comparison, including weak baselines.
+
+    Beyond the four core models this adds:
+
+    * **Elastic-net LR** — L1+L2 penalty, so the linear model performs its own
+      feature selection. A methodological counterpoint to the separate
+      RFE/chi-square stage.
+    * **CatBoost** — the model Paper 3 reports as its best (95.7%). Included so
+      that comparison rests on a run of our own rather than a quoted number.
+    * **Gaussian Naive Bayes** and **KNN** — used by Papers 1 and 4. Both are
+      expected to underperform, which is the point: they establish a weak-model
+      floor, so "0.95 AUC" is measured against something other than the
+      67% majority-class baseline.
+
+    KNN is included with the caveat that it is the model most damaged by SMOTE:
+    oversampling by interpolating between neighbours, then classifying by
+    neighbours, is close to circular. Its result should be read with that in
+    mind.
+    """
+    classifiers = dict(build_classifiers(random_state))
+
+    classifiers["Elastic-Net LR"] = LogisticRegression(
+        penalty="elasticnet",
+        solver="saga",
+        l1_ratio=0.5,
+        C=1.0,
+        max_iter=10000,
+        random_state=random_state,
+    )
+    classifiers["Gaussian NB"] = GaussianNB()
+    classifiers["KNN"] = KNeighborsClassifier(n_neighbors=11, weights="distance")
+
+    if HAS_CATBOOST:
+        classifiers["CatBoost"] = CatBoostClassifier(
+            iterations=400,
+            depth=4,
+            learning_rate=0.05,
+            l2_leaf_reg=3.0,
+            random_seed=random_state,
+            verbose=0,
+            allow_writing_files=False,
+        )
+
+    return classifiers
+
+
 def build_stacking(random_state: int = config.RANDOM_STATE) -> StackingClassifier:
-    """Stacking ensemble over the four base learners.
+    """Stacking ensemble over the four core base learners.
 
     The meta-learner is a plain logistic regression on the base models'
     predicted probabilities. ``cv=5`` makes the base predictions
@@ -172,15 +234,50 @@ def build_pipeline(
     return ImbPipeline(steps)
 
 
-def build_all_models(X, selector: str = "all", k_features: int = 15) -> dict:
-    """Every model in the comparison, wrapped in its pipeline."""
+def build_all_models(
+    X, selector: str = "all", k_features: int = 15, extended: bool = True
+) -> dict:
+    """Every model in the comparison, wrapped in its pipeline.
+
+    Parameters
+    ----------
+    extended:
+        Include the wider algorithm set (elastic-net LR, CatBoost, Naive
+        Bayes, KNN) alongside the four core models and the stacking ensemble.
+        Set ``False`` for the smaller, faster core comparison.
+    """
+    source = build_extended_classifiers() if extended else build_classifiers()
+
     models = {}
-    for name, clf in build_classifiers().items():
+    for name, clf in source.items():
         models[name] = build_pipeline(X, clf, selector=selector, k_features=k_features)
     models["Stacking Ensemble"] = build_pipeline(
         X, build_stacking(), selector=selector, k_features=k_features
     )
     return models
+
+
+def build_calibrated(
+    X,
+    classifier,
+    selector: str = "all",
+    k_features: int = 15,
+    method: str = "isotonic",
+) -> ImbPipeline:
+    """Wrap a classifier so its predicted probabilities are calibrated.
+
+    Tree ensembles push probabilities toward the middle of the range: a
+    Random Forest that outputs 0.8 is not right 80% of the time. That is
+    harmless for ROC-AUC, which only depends on ranking, but it matters as
+    soon as a probability is used to set a screening threshold.
+
+    The calibrator sits *inside* the pipeline and uses its own internal CV, so
+    it is fitted on training folds only, like every other fitted step.
+    """
+    from sklearn.calibration import CalibratedClassifierCV
+
+    calibrated = CalibratedClassifierCV(classifier, method=method, cv=5)
+    return build_pipeline(X, calibrated, selector=selector, k_features=k_features)
 
 
 def selected_feature_names(fitted_pipeline: ImbPipeline) -> list[str]:

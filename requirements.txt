@@ -10,3 +10,9 @@ seaborn>=0.12
 openpyxl>=3.1
 joblib>=1.3
 jupyter>=1.0
+
+# Optional. The pipeline runs without them: CatBoost is dropped from the model
+# zoo and the AutoML benchmark reports itself unavailable.
+catboost>=1.2      # Paper 3's best model, so its claim is tested not quoted
+flaml>=2.1         # AutoML headroom benchmark
+

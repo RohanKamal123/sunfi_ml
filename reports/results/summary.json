@@ -19,12 +19,21 @@
   "test_specificity": 0.9589,
   "test_roc_auc": 0.9418,
   "leakage_accuracy_inflation": 0.0317,
-  "runtime_seconds": 199.8,
+  "n_models_compared": 9,
+  "n_models_indistinguishable_from_best": 4,
+  "best_calibrated_model": "Stacking Ensemble",
+  "best_brier_score": 0.082,
+  "runtime_seconds": 402.5,
   "top_shap_features": [
     "Follicle count (R)",
     "Follicle count (L)",
     "Skin darkening",
     "Hair growth",
     "Weight gain"
-  ]
+  ],
+  "automl": {
+    "best_estimator": "rf",
+    "test_roc_auc": 0.9372,
+    "gain_over_hand_built": -0.0046
+  }
 }

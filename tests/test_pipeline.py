@@ -14,7 +14,7 @@ import pandas as pd
 import pytest
 from sklearn.model_selection import StratifiedKFold, cross_val_score
 
-from src import config, data, evaluate, features, models
+from src import calibration, config, data, evaluate, features, models
 
 
 # --------------------------------------------------------------------------
@@ -258,6 +258,130 @@ def test_model_beats_the_majority_class_baseline(xy):
     cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=config.RANDOM_STATE)
     scores = cross_val_score(pipeline, X, y, cv=cv, scoring="roc_auc")
     assert scores.mean() > 0.85
+
+
+# --------------------------------------------------------------------------
+# Extended model zoo
+# --------------------------------------------------------------------------
+def test_extended_zoo_superset_of_core():
+    core = models.build_classifiers()
+    extended = models.build_extended_classifiers()
+    assert set(core) <= set(extended)
+    for name in ("Elastic-Net LR", "Gaussian NB", "KNN"):
+        assert name in extended
+
+
+def test_every_model_fits_and_predicts_probabilities(xy):
+    """All models must expose predict_proba, or the ROC/calibration code breaks."""
+    X, y = xy
+    X_small, y_small = X.head(200), y.head(200)
+    for name, clf in models.build_extended_classifiers().items():
+        pipeline = models.build_pipeline(X_small, clf, selector="chi2", k_features=8)
+        pipeline.fit(X_small, y_small)
+        proba = pipeline.predict_proba(X_small)
+        assert proba.shape == (len(X_small), 2)
+        assert np.allclose(proba.sum(axis=1), 1.0), f"{name} probabilities do not sum to 1"
+
+
+# --------------------------------------------------------------------------
+# Calibration and significance
+# --------------------------------------------------------------------------
+def test_expected_calibration_error_is_zero_for_perfect_probabilities():
+    # 100 samples at p=1.0 that are all positive, 100 at p=0.0 all negative.
+    y_true = np.array([1] * 100 + [0] * 100)
+    y_proba = np.array([1.0] * 100 + [0.0] * 100)
+    assert calibration.expected_calibration_error(y_true, y_proba) == pytest.approx(0.0)
+
+
+def test_expected_calibration_error_catches_overconfidence():
+    # Claims 0.9 confidence but is right only half the time.
+    y_true = np.array([1, 0] * 50)
+    y_proba = np.full(100, 0.9)
+    assert calibration.expected_calibration_error(y_true, y_proba) == pytest.approx(0.4, abs=0.01)
+
+
+def test_calibration_metrics_reward_honest_probabilities():
+    """A well-calibrated model must score better on Brier than an overconfident one."""
+    rng = np.random.default_rng(0)
+    y_true = rng.binomial(1, 0.3, 500)
+
+    honest = np.where(y_true == 1, 0.7, 0.3)
+    overconfident = np.where(y_true == 1, 0.99, 0.01) * 0 + np.full(500, 0.9)
+
+    assert (
+        calibration.calibration_metrics(y_true, honest)["brier"]
+        < calibration.calibration_metrics(y_true, overconfident)["brier"]
+    )
+
+
+def test_significance_table_marks_reference_and_ranks(xy):
+    fold_scores = pd.DataFrame(
+        {
+            "A": [0.90, 0.91, 0.92, 0.90],
+            "B": [0.89, 0.90, 0.91, 0.89],  # consistently 0.01 lower -> separable
+            "C": [0.70, 0.71, 0.72, 0.70],  # much lower
+        }
+    )
+    table = calibration.significance_against_best(fold_scores)
+
+    assert table.iloc[0]["model"] == "A"
+    assert table.iloc[0]["statistically_sep"].startswith("—")
+    # C is far below A on every fold, and by a wide margin, so it must be
+    # separable on both the statistical and the practical column.
+    row_c = table[table["model"] == "C"].iloc[0]
+    assert row_c["statistically_sep"] == "yes"
+    assert row_c["practically_sep"] == "yes"
+    # B is consistently lower but by only 0.01 AUC: detectable, not meaningful.
+    row_b = table[table["model"] == "B"].iloc[0]
+    assert row_b["practically_sep"] == "no"
+
+
+def test_significance_matrix_is_symmetric():
+    fold_scores = pd.DataFrame(
+        {"A": [0.9, 0.91, 0.89], "B": [0.88, 0.90, 0.87], "C": [0.85, 0.86, 0.84]}
+    )
+    matrix = calibration.significance_matrix(fold_scores)
+    for a in matrix.index:
+        for b in matrix.columns:
+            if a != b:
+                assert matrix.loc[a, b] == pytest.approx(matrix.loc[b, a])
+
+
+def test_identical_models_are_not_separable():
+    """Sanity check on the test itself: a model cannot differ from its own copy."""
+    scores = pd.DataFrame({"A": [0.9, 0.92, 0.88, 0.91], "A_copy": [0.9, 0.92, 0.88, 0.91]})
+    table = calibration.significance_against_best(scores)
+    non_reference = table[table["p_value"].notna()]
+    assert (non_reference["statistically_sep"] == "no").all()
+
+
+# --------------------------------------------------------------------------
+# AutoML
+# --------------------------------------------------------------------------
+def test_automl_column_sanitiser_strips_special_characters():
+    from src.automl import _sanitise_columns
+
+    df = pd.DataFrame(
+        [[1, 2, 3]], columns=["FSH(mIU/mL)", "Waist:Hip Ratio", "BP _Systolic (mmHg)"]
+    )
+    out = _sanitise_columns(df)
+    for column in out.columns:
+        assert re_fullmatch_identifier(column), column
+    assert len(set(out.columns)) == 3
+
+
+def test_automl_sanitiser_disambiguates_collisions():
+    from src.automl import _sanitise_columns
+
+    df = pd.DataFrame([[1, 2]], columns=["a(b)", "a:b"])  # both flatten to "a_b"
+    out = _sanitise_columns(df)
+    assert len(set(out.columns)) == 2
+
+
+def re_fullmatch_identifier(name: str) -> bool:
+    import re
+
+    return re.fullmatch(r"[0-9a-zA-Z_]+", name) is not None
 
 
 def test_threshold_sweep_is_monotone_in_recall(xy):
