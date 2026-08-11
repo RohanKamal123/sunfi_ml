@@ -1,0 +1,30 @@
+{
+  "n_samples": 541,
+  "n_features": 41,
+  "class_balance": {
+    "no_pcos": 364,
+    "pcos": 177
+  },
+  "best_feature_set": "chi2",
+  "n_features_selected": 15,
+  "best_model": "Random Forest",
+  "cv_roc_auc": 0.9537,
+  "cv_roc_auc_std": 0.0294,
+  "cv_accuracy": 0.899,
+  "cv_accuracy_std": 0.0363,
+  "test_accuracy": 0.9174,
+  "test_precision": 0.9091,
+  "test_recall": 0.8333,
+  "test_f1": 0.8696,
+  "test_specificity": 0.9589,
+  "test_roc_auc": 0.9418,
+  "leakage_accuracy_inflation": 0.0317,
+  "runtime_seconds": 199.8,
+  "top_shap_features": [
+    "Follicle count (R)",
+    "Follicle count (L)",
+    "Skin darkening",
+    "Hair growth",
+    "Weight gain"
+  ]
+}

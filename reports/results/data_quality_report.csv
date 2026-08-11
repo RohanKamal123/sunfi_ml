@@ -1,0 +1,43 @@
+feature,column,dtype,missing,missing_pct,n_unique,was_text_in_source,derived
+Endometrium (mm),Endometrium (mm),float64,2,0.37,90,False,False
+Cycle length (days),Cycle length(days),float64,1,0.18,11,False,False
+beta-HCG II,II    beta-HCG(mIU/mL),float64,1,0.18,202,True,False
+AMH,AMH(ng/mL),float64,1,0.18,300,True,False
+Irregular cycle,Cycle_Irregular,float64,1,0.18,2,False,True
+Fast food,Fast food (Y/N),float64,1,0.18,2,False,False
+Years married,Marraige Status (Yrs),float64,1,0.18,34,False,False
+Weight (kg),Weight (Kg),float64,0,0.0,117,False,False
+Age (yrs),Age (yrs),int64,0,0.0,29,False,False
+PCOS,PCOS,int64,0,0.0,2,False,True
+Haemoglobin (g/dl),Hb(g/dl),float64,0,0.0,46,False,False
+Respiratory rate,RR (breaths/min),int64,0,0.0,8,False,False
+Pulse rate (bpm),Pulse rate(bpm),int64,0,0.0,11,False,False
+Blood Group,Blood Group,int64,0,0.0,8,False,False
+Height (cm),Height(Cm),float64,0,0.0,50,False,False
+BMI,BMI,float64,0,0.0,355,False,False
+beta-HCG I,I   beta-HCG(mIU/mL),float64,0,0.0,307,False,False
+No. of abortions,No. of aborptions,int64,0,0.0,6,False,False
+FSH/LH ratio,FSH/LH,float64,0,0.0,512,False,False
+Hip (in),Hip(inch),int64,0,0.0,19,False,False
+Waist:hip ratio,Waist:Hip Ratio,float64,0,0.0,96,False,False
+Waist (in),Waist(inch),int64,0,0.0,23,False,False
+TSH,TSH (mIU/L),float64,0,0.0,308,False,False
+FSH,FSH(mIU/mL),float64,0,0.0,371,False,False
+LH,LH(mIU/mL),float64,0,0.0,342,False,False
+Pregnant,Pregnant(Y/N),int64,0,0.0,2,False,False
+Progesterone,PRG(ng/mL),float64,0,0.0,89,False,False
+Vitamin D3,Vit D3 (ng/mL),float64,0,0.0,331,False,False
+Prolactin,PRL(ng/mL),float64,0,0.0,481,False,False
+Random blood sugar,RBS(mg/dl),float64,0,0.0,55,False,False
+Skin darkening,Skin darkening (Y/N),int64,0,0.0,2,False,False
+Hair loss,Hair loss(Y/N),int64,0,0.0,2,False,False
+Hair growth,hair growth(Y/N),int64,0,0.0,2,False,False
+Weight gain,Weight gain(Y/N),int64,0,0.0,2,False,False
+Regular exercise,Reg.Exercise(Y/N),int64,0,0.0,2,False,False
+Pimples,Pimples(Y/N),int64,0,0.0,2,False,False
+BP systolic,BP _Systolic (mmHg),int64,0,0.0,6,False,False
+BP diastolic,BP _Diastolic (mmHg),int64,0,0.0,5,False,False
+Follicle count (R),Follicle No. (R),int64,0,0.0,20,False,False
+Follicle count (L),Follicle No. (L),int64,0,0.0,21,False,False
+Avg follicle size (R),Avg. F size (R) (mm),float64,0,0.0,32,False,False
+Avg follicle size (L),Avg. F size (L) (mm),float64,0,0.0,31,False,False
