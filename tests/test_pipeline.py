@@ -15,6 +15,7 @@ import pytest
 from sklearn.model_selection import StratifiedKFold, cross_val_score
 
 from src import (
+    baselines,
     calibration,
     clinical,
     config,
@@ -579,6 +580,108 @@ def test_subgroup_sizes_sum_to_test_set(xy):
         # Bands can drop rows with a missing value for the banding variable.
         assert total <= len(y_test)
         assert total > 0.8 * len(y_test)
+
+
+# --------------------------------------------------------------------------
+# Clinical rule baselines
+# --------------------------------------------------------------------------
+def test_rules_are_recognised_as_classifiers():
+    """The MRO trap: with BaseEstimator before ClassifierMixin, sklearn stops
+    seeing these as classifiers and roc_auc scoring silently returns NaN."""
+    from sklearn.base import is_classifier
+
+    for name, rule in baselines.build_baselines().items():
+        assert is_classifier(rule), f"{name} is not recognised as a classifier"
+
+
+def test_rotterdam_rule_applies_the_published_threshold(xy):
+    """The rule must be the clinical criterion verbatim, not a fitted model."""
+    X, y = xy
+    rule = baselines.RotterdamFollicleRule().fit(X, y)
+    pred = rule.predict(X)
+
+    expected = (
+        X[[baselines.FOLLICLE_L, baselines.FOLLICLE_R]].max(axis=1)
+        >= baselines.ROTTERDAM_FOLLICLE_THRESHOLD
+    ).astype(int)
+    assert (pred == expected.to_numpy()).all()
+
+
+def test_rotterdam_rule_ignores_training_labels(xy):
+    """A zero-parameter rule must predict identically however it was fitted."""
+    X, y = xy
+    normal = baselines.RotterdamFollicleRule().fit(X, y)
+    flipped = baselines.RotterdamFollicleRule().fit(X, 1 - y)
+    assert (normal.predict(X) == flipped.predict(X)).all()
+
+
+def test_tuned_threshold_beats_or_matches_fixed_one_in_training(xy):
+    """Tuning one parameter cannot do worse than the fixed threshold in-sample."""
+    from sklearn.metrics import f1_score
+
+    X, y = xy
+    fixed = baselines.RotterdamFollicleRule().fit(X, y)
+    tuned = baselines.TunedThresholdRule().fit(X, y)
+    assert f1_score(y, tuned.predict(X)) >= f1_score(y, fixed.predict(X)) - 1e-9
+
+
+def test_rules_handle_missing_values(xy):
+    """Rules run outside the imputing pipeline, so they must cope alone."""
+    X, y = xy
+    assert X.isna().sum().sum() > 0
+    for name, rule in baselines.build_baselines().items():
+        rule.fit(X, y)
+        proba = rule.predict_proba(X)
+        assert not np.isnan(proba).any(), f"{name} produced NaN probabilities"
+        assert proba.shape == (len(X), 2)
+
+
+def test_rule_probabilities_rank_like_the_underlying_score(xy):
+    """predict_proba must preserve the ordering of the quantity it is built on,
+    or the reported AUC would not mean what the docstring says."""
+    from scipy.stats import spearmanr
+
+    X, y = xy
+    rule = baselines.RotterdamFollicleRule().fit(X, y)
+    proba = rule.predict_proba(X)[:, 1]
+    follicles = X[[baselines.FOLLICLE_L, baselines.FOLLICLE_R]].max(axis=1)
+    rho, _ = spearmanr(proba, follicles)
+    assert rho > 0.999
+
+
+def test_majority_class_rule_matches_prevalence(xy):
+    X, y = xy
+    rule = baselines.MajorityClassRule().fit(X, y)
+    assert (rule.predict(X) == 0).all()  # non-PCOS is the majority
+    assert rule.predict_proba(X)[:, 1][0] == pytest.approx(y.mean())
+
+
+def test_value_added_excludes_majority_class_from_best_rule():
+    """'Best rule' must mean a rule with clinical content, not the floor."""
+    frame = pd.DataFrame([
+        {"approach": "Majority class", "kind": "clinical rule", "cv_roc_auc": 0.99,
+         "test_roc_auc": 0.99, "test_accuracy": 0.9, "test_recall": 0.9, "test_specificity": 0.9},
+        {"approach": "Rotterdam rule (follicles >= 12)", "kind": "clinical rule", "cv_roc_auc": 0.90,
+         "test_roc_auc": 0.88, "test_accuracy": 0.86, "test_recall": 0.61, "test_specificity": 0.99},
+        {"approach": "Some Model", "kind": "machine learning", "cv_roc_auc": 0.95,
+         "test_roc_auc": 0.94, "test_accuracy": 0.92, "test_recall": 0.83, "test_specificity": 0.97},
+    ])
+    verdict = baselines.value_added_by_ml(frame)
+    assert verdict["best_rule"] != "Majority class"
+    assert verdict["cv_auc_gain"] == pytest.approx(0.05)
+
+
+def test_value_added_reports_patient_counts():
+    frame = pd.DataFrame([
+        {"approach": "Rotterdam rule (follicles >= 12)", "kind": "clinical rule", "cv_roc_auc": 0.90,
+         "test_roc_auc": 0.88, "test_accuracy": 0.86, "test_recall": 0.5, "test_specificity": 1.0},
+        {"approach": "Some Model", "kind": "machine learning", "cv_roc_auc": 0.95,
+         "test_roc_auc": 0.94, "test_accuracy": 0.92, "test_recall": 0.75, "test_specificity": 1.0},
+    ])
+    verdict = baselines.value_added_by_ml(frame, n_positive=40, n_negative=60)
+    assert verdict["cases_found_by_rule"] == 20
+    assert verdict["cases_found_by_ml"] == 30
+    assert verdict["extra_cases_found_by_ml"] == 10
 
 
 def test_threshold_sweep_is_monotone_in_recall(xy):

@@ -20,6 +20,7 @@ import pandas as pd
 
 from . import (
     automl,
+    baselines,
     calibration,
     clinical,
     config,
@@ -375,6 +376,56 @@ def main(quick: bool = False, k_features: int = 15) -> dict:
             "only a large failure would show."
         )
 
+    # -------------------------------------------------- clinical baselines
+    _banner("7e. Does any of this beat the rule a clinician already uses?")
+    rule_comparison = baselines.compare_against_ml(
+        X_train, y_train, X_test, y_test, test_models,
+        folds=5 if quick else config.CV_FOLDS,
+    )
+    _save_table(rule_comparison, "clinical_rule_comparison")
+
+    verdict = baselines.value_added_by_ml(
+        rule_comparison,
+        n_positive=int((y_test == 1).sum()),
+        n_negative=int((y_test == 0).sum()),
+    )
+    (config.RESULTS_DIR / "value_added_by_ml.json").write_text(json.dumps(verdict, indent=2))
+    baselines.plot_comparison(rule_comparison, verdict)
+
+    print(rule_comparison[["approach", "kind", "cv_roc_auc", "test_roc_auc",
+                           "test_accuracy", "test_recall", "test_specificity"]]
+          .round(4).to_string(index=False))
+
+    # Print the learned depth-2 tree: it is short enough to read, and it shows
+    # what a model with almost no capacity latches onto.
+    tree = baselines.ShallowTreeRule().fit(X_train, y_train)
+    print("\n  The depth-2 decision tree, in full:")
+    for line in tree.as_text().splitlines():
+        print("    " + line)
+
+    print(
+        f"\n  Best clinical rule : {verdict['best_rule']}"
+        f"\n    CV ROC-AUC       : {verdict['best_rule_cv_auc']:.4f}"
+        f"\n    test recall      : {verdict['best_rule_test_recall']:.4f}"
+        f"\n  Best ML model      : {verdict['best_ml']}"
+        f"\n    CV ROC-AUC       : {verdict['best_ml_cv_auc']:.4f}"
+        f"\n    test recall      : {verdict['best_ml_test_recall']:.4f}"
+        f"\n\n  ML gains {verdict['cv_auc_gain']:+.4f} CV AUC and "
+        f"{verdict['test_recall_gain']:+.4f} recall."
+    )
+    print(
+        f"\n  In patients: counting follicles finds {verdict['cases_found_by_rule']} of the "
+        f"{verdict['test_positives']} PCOS cases in the test set.\n"
+        f"  The model finds {verdict['cases_found_by_ml']} — "
+        f"{verdict['extra_cases_found_by_ml']} more — at the cost of "
+        f"{verdict['extra_false_alarms_from_ml']} extra false alarm(s).\n"
+        f"\n  Both readings are true and belong in the report: a zero-parameter rule\n"
+        f"  already reaches {verdict['pct_of_ml_auc_from_rule']:.0%} of the model's AUC, so most of the\n"
+        f"  discriminative signal is simply the follicle count. What the model adds is\n"
+        f"  sensitivity at the operating point, which is exactly what a screening tool\n"
+        f"  is for."
+    )
+
     # ---------------------------------------------------------- leakage
     _banner("8. Leakage experiment — how much does a leaky protocol inflate results?")
     leakage = evaluate.leakage_experiment(X, y, rf, folds=5 if quick else config.CV_FOLDS,
@@ -565,6 +616,16 @@ def main(quick: bool = False, k_features: int = 15) -> dict:
         "leakage_accuracy_inflation": round(
             float(leakage.iloc[2]["accuracy"]), 4
         ),
+        "clinical_rule_baseline": {
+            "best_rule": verdict["best_rule"],
+            "rule_cv_auc": verdict["best_rule_cv_auc"],
+            "rule_test_recall": verdict["best_rule_test_recall"],
+            "ml_cv_auc_gain": verdict["cv_auc_gain"],
+            "ml_test_recall_gain": verdict["test_recall_gain"],
+            "pct_of_ml_auc_from_rule": verdict["pct_of_ml_auc_from_rule"],
+            "extra_cases_found_by_ml": verdict.get("extra_cases_found_by_ml"),
+            "extra_false_alarms_from_ml": verdict.get("extra_false_alarms_from_ml"),
+        },
         "n_models_compared": len(cv_results),
         "n_models_indistinguishable_from_best": n_indistinguishable,
         "n_models_practically_different": n_practical,

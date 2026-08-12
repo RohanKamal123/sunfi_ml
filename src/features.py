@@ -31,8 +31,13 @@ from sklearn.preprocessing import MinMaxScaler
 
 from . import config
 
+# Note the base-class order throughout this module: scikit-learn resolves
+# estimator tags through the MRO, so the mixin must precede BaseEstimator.
+# With the order reversed, BaseEstimator's tags win and downstream tooling
+# can silently mis-classify the estimator.
 
-class CorrelationSelector(BaseEstimator, TransformerMixin):
+
+class CorrelationSelector(TransformerMixin, BaseEstimator):
     """Keep features correlated with the target, drop redundant ones.
 
     Two passes:
@@ -92,7 +97,7 @@ class CorrelationSelector(BaseEstimator, TransformerMixin):
         return np.asarray(self.selected_features_, dtype=object)
 
 
-class Chi2Selector(BaseEstimator, TransformerMixin):
+class Chi2Selector(TransformerMixin, BaseEstimator):
     """Top-k features by chi-square statistic.
 
     Chi-square needs non-negative inputs, so a min-max scaler is fitted on
@@ -126,7 +131,7 @@ class Chi2Selector(BaseEstimator, TransformerMixin):
         return np.asarray(self.selected_features_, dtype=object)
 
 
-class RFESelector(BaseEstimator, TransformerMixin):
+class RFESelector(TransformerMixin, BaseEstimator):
     """Recursive Feature Elimination with a logistic-regression estimator.
 
     A thin wrapper around :class:`sklearn.feature_selection.RFE` that keeps
@@ -163,7 +168,7 @@ class RFESelector(BaseEstimator, TransformerMixin):
         return np.asarray(self.selected_features_, dtype=object)
 
 
-class PassthroughSelector(BaseEstimator, TransformerMixin):
+class PassthroughSelector(TransformerMixin, BaseEstimator):
     """No-op selector, so that the "all features" baseline has the same shape."""
 
     def fit(self, X, y=None):

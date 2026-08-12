@@ -27,6 +27,7 @@ five recent papers.
 | **A free questionnaire gets you most of the way** | **0.887 AUC** with no clinician, lab or ultrasound — **93%** of the full model. The entire blood panel adds **+0.011** |
 | **The model transfers, but the useful features don't exist elsewhere** | External AUC drop ≈ **−0.006** on an independent Tunisian cohort — but only 8 features are shared, and the headline model **cannot be externally validated on any public data** |
 | **AutoML finds no headroom** | **+0.0004 ROC-AUC** from a 120s architecture + hyperparameter search |
+| **A 2003 clinical rule gets 95% of the way** | "Follicles ≥ 12" reaches **0.903 AUC with zero learned parameters** — but finds only 22 of 36 cases, where the model finds 30 |
 
 Jump to: [leakage](#the-leakage-experiment) · [no best algorithm](#there-is-no-best-algorithm-here) ·
 [cost tiers](#what-does-each-tier-of-testing-actually-buy) · [external validation](#external-validation)
@@ -52,6 +53,7 @@ was done about each:
 | **No point estimates without uncertainty** | 95% bootstrap CIs on every test metric |
 | **No clinical utility measure** | Decision curve analysis (net benefit) and cost-tiered deployment models |
 | **No reporting standard followed** | [TRIPOD+AI checklist](reports/TRIPOD_AI_checklist.md) filled in item by item, including a PROBAST-style risk-of-bias self-assessment |
+| **Models compared only against other models** | Five clinical decision rules — including the Rotterdam criterion applied verbatim — run through the identical protocol, so "does ML beat counting follicles?" gets a number |
 
 What we did **not** close, stated plainly: the dataset contains no ultrasound imagery, and
 our external validation is structurally limited — only 8 features are shared with the
@@ -247,6 +249,80 @@ questionnaire, skip the bloods, and spend the budget on ultrasound access for
 the women the questionnaire flags.** None of the five reviewed papers ask this
 question, and none of them could answer it, because they all optimise a single
 model on all 41 features at once.
+
+## Does any of this beat the rule a clinician already uses?
+
+Every reviewed paper compares its models only against other models. None asks the prior
+question. It matters here because SHAP puts follicle count far ahead of everything else,
+and the Rotterdam criteria **already specify a threshold**: 12 or more follicles on either
+ovary.
+
+So we ran that rule — and four other rules of increasing sophistication — through the
+identical CV folds, test split and metrics as the nine models. No handicap, no advantage.
+
+| Approach | | CV ROC-AUC | Test AUC | Test accuracy | **Test recall** | Test specificity |
+|---|---|---|---|---|---|---|
+| Stacking Ensemble | ML | **0.9528** | 0.9452 | 0.927 | **0.833** | 0.973 |
+| Random Forest | ML | 0.9511 | 0.9452 | 0.917 | 0.833 | 0.959 |
+| CatBoost | ML | 0.9502 | 0.9585 | 0.936 | 0.889 | 0.959 |
+| Gaussian NB | ML | 0.9457 | 0.9467 | 0.908 | **0.917** | 0.904 |
+| **Rotterdam rule (follicles ≥ 12)** | rule | **0.9029** | 0.8760 | 0.862 | **0.611** | 0.986 |
+| Follicle threshold (tuned) | rule | 0.9029 | 0.8760 | 0.835 | 0.722 | 0.890 |
+| Logistic on follicle count | rule | 0.8902 | 0.8752 | 0.844 | 0.750 | 0.890 |
+| Decision tree (depth 2) | rule | 0.8692 | 0.9066 | 0.862 | 0.583 | 1.000 |
+| Symptom count (tuned k) | rule | 0.8557 | 0.8701 | 0.835 | 0.806 | 0.849 |
+| Majority class | floor | 0.5000 | 0.5000 | 0.670 | 0.000 | 1.000 |
+
+**Both readings below are true, and the report should carry both.**
+
+### Reading 1: most of the signal is just the follicle count
+
+A rule with **zero learned parameters** — published in 2003, applied verbatim — reaches
+0.903 CV AUC. That is **94.8% of the best model's AUC**. Nine algorithms, SMOTE, three
+feature selectors, a stacking ensemble and an AutoML search buy **+0.050 AUC** over
+counting follicles on an ultrasound.
+
+Tuning the threshold on the training data changes nothing (0.9029 either way), which is a
+small vindication of the Rotterdam consensus: 12 is already the right cut-off for this
+population.
+
+### Reading 2: but the model finds a third more of the cases
+
+Accuracy and AUC both understate what separates them, because the rule achieves its score
+through *specificity*. Look at recall:
+
+| | Cases found (of 36) | False alarms (of 73) |
+|---|---|---|
+| Rotterdam rule | **22** | 1 |
+| Stacking Ensemble | **30** | 2 |
+
+**The model finds 8 more PCOS cases and raises one extra false alarm.** The rule misses 39%
+of the women it exists to detect; the model misses 17%.
+
+For a screening tool that trade is overwhelmingly worth taking — a false alarm costs a
+confirmatory ultrasound, a missed case costs years of undiagnosed PCOS. This is the same
+point the decision curve analysis makes, arrived at independently.
+
+### What this means for the project's conclusion
+
+The honest summary is not "ML works" or "ML is unnecessary". It is:
+
+> On this dataset almost all of the *discriminative signal* is the follicle count, which a
+> clinician can already read off an ultrasound. What machine learning contributes is not
+> new information but **better use of the operating point** — converting the same signal
+> into materially higher sensitivity at almost no cost in specificity.
+
+That reframes the cost-tier finding too. The questionnaire-only model reaches 0.887 AUC
+*without any ultrasound at all* — which is competitive with the Rotterdam rule (0.903) that
+requires one. For a clinic with no sonographer, the questionnaire model is not a degraded
+option; it is roughly as good as the clinical standard it cannot afford to run.
+
+### The depth-2 tree, in full
+
+The most legible model in the comparison learns essentially the clinical criterion by
+itself — see `reports/results/clinical_rule_comparison.csv` and the printed tree in the
+pipeline output. A model given almost no capacity rediscovers "count the follicles",
+which is the cleanest possible corroboration of the SHAP analysis.
 
 ## Probability calibration — the tie-break ROC-AUC cannot see
 
@@ -522,6 +598,7 @@ sunfi_ml/
 │   ├── evaluate.py       CV, held-out testing, the leakage experiment
 │   ├── calibration.py    Brier/ECE calibration + paired significance tests
 │   ├── validation.py     Nested CV, seed sweep, learning curves, bootstrap CIs
+│   ├── baselines.py      Clinical decision rules — the baseline ML must beat
 │   ├── clinical.py       Decision curves, cost tiers, subgroup performance
 │   ├── external.py       Independent Tunisian cohort + provenance log
 │   ├── automl.py         FLAML benchmark — is there headroom?
@@ -532,10 +609,10 @@ sunfi_ml/
 ├── data/raw/             Kerala cohort (541 patients)
 ├── data/external/        Tunisian cohort (88 patients, CC BY 4.0)
 ├── notebooks/PCOS_Prediction.ipynb
-├── reports/figures/      29 generated figures
-├── reports/results/      29 result tables (CSV/JSON) + summary.json
+├── reports/figures/      30 generated figures
+├── reports/results/      31 result tables (CSV/JSON) + summary.json
 ├── reports/TRIPOD_AI_checklist.md
-└── tests/test_pipeline.py    52 tests
+└── tests/test_pipeline.py    63 tests
 ```
 
 ### Optional dependencies

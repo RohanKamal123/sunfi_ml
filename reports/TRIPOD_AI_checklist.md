@@ -139,6 +139,20 @@ This does not invalidate the work, but it changes what the result means:
 
 None of the five reviewed papers raise this issue.
 
+**We have now measured it rather than only asserting it.** Applying the Rotterdam
+follicle criterion as a bare rule — threshold 12, zero learned parameters — reaches
+0.903 cross-validated ROC-AUC, which is 94.8% of the best model's 0.953. A depth-2
+decision tree given all 41 features independently rediscovers the same rule.
+
+That is the circularity, quantified: most of what the model "learns" is the
+diagnostic definition it is being scored against.
+
+What survives the deduction is still worth something, and it is specific:
+the model converts that same signal into materially better sensitivity
+(recall 0.833 vs 0.611 — 30 of 36 test cases found rather than 22, for one extra
+false alarm). A screening instrument is judged on exactly that, so the
+contribution is real; it is just narrower than an AUC of 0.95 makes it sound.
+
 ---
 
 ## Reference
