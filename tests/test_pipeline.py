@@ -684,6 +684,52 @@ def test_value_added_reports_patient_counts():
     assert verdict["extra_cases_found_by_ml"] == 10
 
 
+def test_run_pipeline_does_not_rebind_names_across_sections():
+    """Guard against a name collision that only surfaces at the very end.
+
+    ``main()`` is one long function whose sections hand values forward, so
+    reusing a name in a later section silently clobbers an earlier one. That
+    happened once: the AutoML section bound ``verdict`` to a message string,
+    destroying the clinical-baseline dict, and the run died in the summary
+    block after 12 minutes of work.
+    """
+    import ast
+    import inspect
+    from collections import defaultdict
+
+    from src import run_pipeline
+
+    tree = ast.parse(inspect.getsource(run_pipeline.main))
+    assignments = defaultdict(list)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    assignments[target.id].append(node.lineno)
+
+    # Names whose repeat bindings are intentional. Each needs a reason, so
+    # that adding to this set is a deliberate act rather than a way to silence
+    # the check.
+    allowed = {
+        # Loop variables and short-lived scratch.
+        "selector", "name", "row", "path", "line", "X_prep", "value",
+        # Initialised to None, then conditionally assigned.
+        "shap_table",
+        # Assigned once per branch of a mutually exclusive if/elif/else.
+        "automl_note",
+    }
+
+    repeated = {
+        name: lines
+        for name, lines in assignments.items()
+        if len(lines) > 1 and name not in allowed
+    }
+    assert not repeated, (
+        "names bound more than once in main(); a later section may be "
+        f"clobbering an earlier one: {repeated}"
+    )
+
+
 def test_threshold_sweep_is_monotone_in_recall(xy):
     X, y = xy
     X_train, X_test, y_train, y_test = evaluate.make_splits(X, y)

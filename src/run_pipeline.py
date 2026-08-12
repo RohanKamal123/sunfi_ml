@@ -318,9 +318,9 @@ def main(quick: bool = False, k_features: int = 15) -> dict:
     y_pred = best_pipeline.predict(X_test)
     plots.plot_confusion_matrix(y_test, y_pred, best_model_name)
 
-    sweep = evaluate.threshold_sweep(best_pipeline, X_test, y_test)
-    _save_table(sweep, "threshold_sweep")
-    plots.plot_threshold_sweep(sweep)
+    threshold_table = evaluate.threshold_sweep(best_pipeline, X_test, y_test)
+    _save_table(threshold_table, "threshold_sweep")
+    plots.plot_threshold_sweep(threshold_table)
 
     joblib.dump(best_pipeline, config.MODELS_DIR / "best_model.joblib")
     print(f"\n  model saved -> models/best_model.joblib")
@@ -485,22 +485,22 @@ def main(quick: bool = False, k_features: int = 15) -> dict:
 
         gain = automl_result["test_roc_auc"] - float(our_row["roc_auc"])
         if abs(gain) < 0.02:
-            verdict = (
+            automl_note = (
                 f"AutoML moved test ROC-AUC by {gain:+.4f} — inside the fold-to-fold\n"
                 "  noise of +/-0.03. The dataset, not the pipeline, is the binding\n"
                 "  constraint, so further tuning would be wasted effort."
             )
         elif gain > 0:
-            verdict = (
+            automl_note = (
                 f"AutoML gained {gain:+.4f} ROC-AUC. That is real headroom — worth\n"
                 "  investigating what architecture it found."
             )
         else:
-            verdict = (
+            automl_note = (
                 f"AutoML scored {gain:+.4f} below the hand-built pipeline, i.e. an\n"
                 "  untargeted search did not even match a considered design."
             )
-        print(f"\n  {verdict}")
+        print(f"\n  {automl_note}")
         print(
             "\n  Caveat: FLAML searches against a wall-clock budget, so the exact model\n"
             "  it returns varies between runs. The conclusion (no meaningful headroom)\n"
@@ -528,13 +528,13 @@ def main(quick: bool = False, k_features: int = 15) -> dict:
 
     _banner("9d. How arbitrary is the winner? Sweeping the train/test split")
     n_seeds = 10 if quick else 30
-    sweep = validation.seed_sweep(
+    seed_results = validation.seed_sweep(
         X, y, models.build_all_models, n_seeds=n_seeds, selector=best_set
     )
-    wins = validation.win_counts(sweep)
-    _save_table(sweep, "seed_sweep_raw")
+    wins = validation.win_counts(seed_results)
+    _save_table(seed_results, "seed_sweep_raw")
     _save_table(wins, "seed_sweep_wins")
-    validation.plot_seed_sweep(sweep, wins)
+    validation.plot_seed_sweep(seed_results, wins)
     print(wins.round(4).to_string(index=False))
 
     n_winners = int((wins["wins"] > 0).sum())

@@ -319,10 +319,26 @@ option; it is roughly as good as the clinical standard it cannot afford to run.
 
 ### The depth-2 tree, in full
 
-The most legible model in the comparison learns essentially the clinical criterion by
-itself — see `reports/results/clinical_rule_comparison.csv` and the printed tree in the
-pipeline output. A model given almost no capacity rediscovers "count the follicles",
-which is the cleanest possible corroboration of the SHAP analysis.
+Given all 41 features and almost no capacity, this is what it learns:
+
+```
+|--- Follicle count (R) <= 7.5   -> no PCOS
+|--- Follicle count (R) >  7.5
+|   |--- Weight gain = no        -> no PCOS
+|   |--- Weight gain = yes       -> PCOS
+```
+
+Its **first split is the follicle count** — independent corroboration of the SHAP
+ranking from a model that shares no machinery with it. Two details are worth noting
+rather than glossing:
+
+- It picks a threshold of **7.5, not the Rotterdam 12**, and then requires a second
+  condition (weight gain) to call a case positive. That combination is *more*
+  conservative overall: it reaches 100% specificity on the test set but only 0.583
+  recall — the lowest of any approach here.
+- So the tree does not simply rediscover the clinical rule; it finds a different,
+  stricter one. The shared conclusion is narrower and more robust: **whatever learns on
+  this data, follicle count is the first thing it reaches for.**
 
 ## Probability calibration — the tie-break ROC-AUC cannot see
 
