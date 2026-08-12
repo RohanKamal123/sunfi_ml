@@ -585,10 +585,10 @@ git clone <this-repo>
 cd sunfi_ml
 pip install -r requirements.txt
 
-# Full study: ~13 minutes, writes all 29 figures and 29 result tables
+# Full study: ~18 minutes, writes all 30 figures and 31 result tables
 python -m src.run_pipeline
 
-# Fast sanity check: fewer folds and seeds, skips SHAP (~2 minutes)
+# Fast sanity check: fewer folds and seeds, skips SHAP (~6 minutes)
 python -m src.run_pipeline --quick
 
 # Tests, including the anti-leakage guarantees
