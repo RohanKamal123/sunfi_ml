@@ -209,17 +209,29 @@ def main(quick: bool = False, k_features: int = 15) -> dict:
     print(f"  best-calibrated model: {best_calibrated}")
 
     # Does explicit calibration help the selected model?
-    base_clf = models.build_extended_classifiers().get(best_model_name)
-    if base_clf is not None:
-        effect = calibration.calibration_effect(
-            models.build_pipeline(X_train, base_clf, selector=best_set, k_features=k_features),
-            models.build_calibrated(X_train, base_clf, selector=best_set, k_features=k_features),
-            X_train,
-            y_train,
+    effect = calibration.calibration_effect(
+        models.build_pipeline(
+            X_train, models.classifier_by_name(best_model_name),
+            selector=best_set, k_features=k_features,
+        ),
+        models.build_calibrated(
+            X_train, models.classifier_by_name(best_model_name),
+            selector=best_set, k_features=k_features,
+        ),
+        X_train,
+        y_train,
+    )
+    _save_table(effect, "calibration_effect")
+    print(f"\n  Effect of isotonic calibration on {best_model_name}:")
+    print(effect.round(4).to_string(index=False))
+    change = effect.iloc[2]
+    worse = [m for m in ("brier", "log_loss", "ece") if change[m] > 0]
+    if worse:
+        print(
+            f"  Calibration made {', '.join(worse)} WORSE. Isotonic regression is\n"
+            "  non-parametric and needs more data than this to fit a stable mapping;\n"
+            "  it also pins probabilities at 0 and 1, which log loss punishes hard."
         )
-        _save_table(effect, "calibration_effect")
-        print(f"\n  Effect of isotonic calibration on {best_model_name}:")
-        print(effect.round(4).to_string(index=False))
 
     # ---------------------------------------------------------- nested CV
     _banner("5d. Nested CV — is the reported CV score itself biased?")

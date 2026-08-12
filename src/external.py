@@ -172,6 +172,8 @@ def validate_externally(
         The same fitted model, applied to Tunisian patients it has never seen,
         from a different country and a different prevalence.
     """
+    from sklearn.metrics import brier_score_loss
+
     from .evaluate import classification_metrics, cross_validate_models
 
     shared = shared_feature_names()
@@ -201,8 +203,6 @@ def validate_externally(
         # a 33% prevalence and the external cohort runs at 51%. Recording the
         # Brier score separates "can it rank patients" from "are its
         # probabilities still meaningful here".
-        from sklearn.metrics import brier_score_loss
-
         rows.append(
             {
                 "model": name,

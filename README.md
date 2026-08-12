@@ -45,7 +45,7 @@ was done about each:
 | **Limited explanation** — only 1 of 5 papers used XAI | SHAP global importance, directional effects, and per-patient waterfall plots |
 | **Single train/test split** on 541 rows | Repeated stratified 10-fold CV (3 repeats) *and* a held-out test set that nothing touches until the end |
 | **No comparison of feature selection methods** | Correlation, Chi-Square and RFE all implemented as transformers and compared under identical CV |
-| **Winners declared from tiny margins** | Paired t-tests across identical folds, reporting statistical *and* practical separability; plus a 30-split sweep showing all 9 models win sometimes |
+| **Winners declared from tiny margins** | Paired t-tests across identical folds, reporting statistical *and* practical separability; plus a 30-split sweep in which 8 of 9 models win at least once |
 | **Only ranking metrics reported** | Brier score, log loss and calibration curves — whether the probabilities mean anything |
 | **No check that the approach itself is sound** | AutoML benchmark under the same protocol, to test for headroom |
 | **No external validation** — *nobody closed this* | **Closed as far as public data allows**: an independent Tunisian cohort (n=88, CC BY 4.0), with provenance checks against re-uploads. Finding: the headline model *cannot* be externally validated on any public data |
@@ -53,9 +53,10 @@ was done about each:
 | **No clinical utility measure** | Decision curve analysis (net benefit) and cost-tiered deployment models |
 | **No reporting standard followed** | [TRIPOD+AI checklist](reports/TRIPOD_AI_checklist.md) filled in item by item, including a PROBAST-style risk-of-bias self-assessment |
 
-Two gaps we identified and did **not** close, stated plainly: no external validation
-cohort was available to us, and the dataset contains no ultrasound imagery. Both remain
-open problems — see [Limitations](#limitations).
+What we did **not** close, stated plainly: the dataset contains no ultrasound imagery, and
+our external validation is structurally limited — only 8 features are shared with the
+independent cohort, so it validates a weak restricted model rather than the headline one.
+See [Limitations](#limitations).
 
 ---
 
@@ -169,7 +170,7 @@ evidence that title is close to meaningless. Six of the eight alternatives are
 indistinguishable from it, it placed sixth on the held-out test set, and it won only 10%
 of the 30 random splits. Anyone reproducing this work should expect a different winner.
 
-### Feature selection
+## Feature selection
 
 | Strategy | Features kept | Mean CV ROC-AUC |
 |---|---|---|
@@ -215,7 +216,7 @@ landed in the test set. A paper that reports "model X achieved the best accuracy
 from a single 80/20 split is reporting a coin flip, and this table is what that
 coin flip looks like when you flip it thirty times.
 
-### What does each tier of testing actually buy?
+## What does each tier of testing actually buy?
 
 Your introduction argues PCOS testing "may not always be easy to access,
 affordable, or quick, especially in areas with limited healthcare resources".
@@ -247,7 +248,7 @@ the women the questionnaire flags.** None of the five reviewed papers ask this
 question, and none of them could answer it, because they all optimise a single
 model on all 41 features at once.
 
-### Probability calibration — the tie-break ROC-AUC cannot see
+## Probability calibration — the tie-break ROC-AUC cannot see
 
 If nine models are tied on ranking ability, pick on something else. ROC-AUC only measures
 *ordering*; it is completely blind to whether a predicted 0.8 corresponds to an 80% chance
@@ -280,13 +281,24 @@ the point:
 Discrimination and calibration are close to uncorrelated here. No reviewed paper reports
 the second one.
 
-**A negative result worth reporting:** wrapping the selected model in isotonic calibration
-made things *worse* — see `reports/results/calibration_effect.csv`. Isotonic regression is
-non-parametric and needs more data than 432 rows to estimate a stable mapping, so it
-overfits the calibration folds. Calibration is not free, and on small datasets the standard
-fix can backfire.
+**A negative result worth reporting.** Wrapping the selected model in isotonic calibration
+did not help:
 
-### External validation
+| | Brier | Log loss | ECE | ROC-AUC |
+|---|---|---|---|---|
+| Uncalibrated | 0.0808 | 0.2724 | 0.0328 | 0.9496 |
+| Isotonic-calibrated | 0.0799 | 0.4226 | 0.0432 | 0.9478 |
+| **Change** | −0.0009 | **+0.1502** | **+0.0104** | −0.0018 |
+
+Brier improves by a rounding error while log loss rises by more than half, ECE gets
+*worse*, and AUC dips. Two things are happening: isotonic regression is non-parametric and
+needs more than 432 rows to fit a stable mapping, and it pins probabilities hard at 0 and
+1 — which log loss punishes severely on the cases it gets wrong.
+
+The lesson is that calibration is not free, and on a dataset this size the textbook fix
+can make the probabilities less trustworthy rather than more.
+
+## External validation
 
 Every reviewed paper was criticised in our gap analysis for never testing on a
 second population. We closed that gap as far as public data allows — and what we
@@ -339,7 +351,7 @@ deployed in a new population needs its threshold re-set for that population's
 base rate — and AUC will never reveal the problem. This is the practical argument
 for the calibration analysis above.
 
-### Does a better pipeline exist? An AutoML check
+## Does a better pipeline exist? An AutoML check
 
 The model comparison answers "which algorithm is best". It cannot answer the more useful
 question: *is this whole approach leaving performance on the table?* Every entry shares
@@ -367,7 +379,7 @@ from architecture search on this data should be read sceptically.
 between runs (we observed 0.935–0.946 test AUC across runs). The conclusion is stable;
 the exact number is not.*
 
-### Applying our own standards to ourselves
+## Applying our own standards to ourselves
 
 The project criticises other papers for leakage. Two checks apply the same
 scrutiny inward.
@@ -405,6 +417,8 @@ Recall — the metric that matters most for a screening tool — is pinned down 
 to within ±12 points. That is the honest precision of *any* single-split number
 on a dataset this size, including the 98–99% figures in the literature, none of
 which report an interval.
+
+## Clinical evaluation
 
 ### Is it clinically worth using? Decision curve analysis
 
@@ -454,7 +468,7 @@ validation says no public dataset currently offers.
 SMOTE buys recall — it catches PCOS cases the unbalanced model misses — at no cost in
 specificity. For a screening tool that trade is worth taking.
 
-### What the model relies on (SHAP)
+## What the model relies on (SHAP)
 
 | Rank | Feature | Mean \|SHAP\| | Higher value means |
 |---|---|---|---|

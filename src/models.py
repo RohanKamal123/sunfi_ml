@@ -280,6 +280,30 @@ def build_calibrated(
     return build_pipeline(X, calibrated, selector=selector, k_features=k_features)
 
 
+STACKING_NAME = "Stacking Ensemble"
+
+
+def classifier_by_name(name: str, random_state: int = config.RANDOM_STATE):
+    """Return a fresh, unwrapped classifier for any name in the comparison.
+
+    :func:`build_extended_classifiers` deliberately excludes the stacking
+    ensemble -- it is built from those classifiers, so including it would be
+    circular. That makes ``build_extended_classifiers()[name]`` a trap for the
+    one name most likely to be the selected model. This function covers every
+    name :func:`build_all_models` produces.
+    """
+    if name == STACKING_NAME:
+        return build_stacking(random_state)
+
+    classifiers = build_extended_classifiers(random_state)
+    if name not in classifiers:
+        raise KeyError(
+            f"Unknown model {name!r}. Expected one of "
+            f"{sorted(classifiers) + [STACKING_NAME]}."
+        )
+    return classifiers[name]
+
+
 def selected_feature_names(fitted_pipeline: ImbPipeline) -> list[str]:
     """Feature names surviving the selector of an already-fitted pipeline."""
     return list(fitted_pipeline.named_steps["select"].get_feature_names_out())

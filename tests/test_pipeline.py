@@ -283,6 +283,24 @@ def test_extended_zoo_superset_of_core():
         assert name in extended
 
 
+def test_classifier_by_name_covers_every_model_in_the_comparison(xy):
+    """Regression guard: the stacking ensemble is absent from the classifier
+    dict it is built from, so a naive dict lookup silently fails for the one
+    name most likely to be the selected model."""
+    X, _ = xy
+    for name in models.build_all_models(X.head(50)):
+        classifier = models.classifier_by_name(name)
+        assert hasattr(classifier, "fit")
+
+    assert models.STACKING_NAME not in models.build_extended_classifiers()
+    assert models.classifier_by_name(models.STACKING_NAME) is not None
+
+
+def test_classifier_by_name_rejects_unknown_names():
+    with pytest.raises(KeyError, match="Unknown model"):
+        models.classifier_by_name("Nonexistent Model")
+
+
 def test_every_model_fits_and_predicts_probabilities(xy):
     """All models must expose predict_proba, or the ROC/calibration code breaks."""
     X, y = xy
