@@ -11,6 +11,11 @@ openpyxl>=3.1
 joblib>=1.3
 jupyter>=1.0
 
+# Report generation (python -m src.report)
+reportlab>=4.0
+pillow>=10.0
+pypdf>=4.0
+
 # Optional. The pipeline runs without them: CatBoost is dropped from the model
 # zoo and the AutoML benchmark reports itself unavailable.
 catboost>=1.2      # Paper 3's best model, so its claim is tested not quoted

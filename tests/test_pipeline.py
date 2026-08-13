@@ -730,6 +730,61 @@ def test_run_pipeline_does_not_rebind_names_across_sections():
     )
 
 
+# --------------------------------------------------------------------------
+# PDF report
+# --------------------------------------------------------------------------
+def test_report_refuses_to_build_from_incomplete_results(tmp_path):
+    """The report must fail loudly rather than substitute stale numbers.
+
+    An earlier version skipped missing files and fell back to hardcoded
+    defaults, which silently produced a plausible-looking PDF after a
+    container restart reverted the results directory. A document that claims
+    its figures come from the pipeline has to break when they do not.
+    """
+    import shutil
+
+    from src import config, report
+
+    if not (config.RESULTS_DIR / "summary.json").exists():
+        pytest.skip("pipeline results not present")
+
+    fake = tmp_path / "results"
+    shutil.copytree(config.RESULTS_DIR, fake)
+    (fake / "value_added_by_ml.json").unlink()
+
+    real = config.RESULTS_DIR
+    config.RESULTS_DIR = fake
+    try:
+        with pytest.raises(FileNotFoundError, match="value_added_by_ml"):
+            report.build(tmp_path / "out.pdf")
+    finally:
+        config.RESULTS_DIR = real
+
+
+def test_report_quotes_the_pipelines_own_numbers():
+    """Spot-check that headline figures in the PDF match summary.json."""
+    from pypdf import PdfReader
+
+    from src import config
+
+    pdf = config.REPORTS_DIR / "PCOS_Project_Report.pdf"
+    if not pdf.exists():
+        pytest.skip("report not built")
+
+    import json
+
+    summary = json.loads((config.RESULTS_DIR / "summary.json").read_text())
+    text = "\n".join(page.extract_text() for page in PdfReader(str(pdf)).pages)
+
+    for token in (
+        f"{summary['test_recall']:.1%}",
+        f"{summary['test_specificity']:.1%}",
+        f"{summary['test_roc_auc']:.3f}",
+        f"{summary['questionnaire_only_cv_auc']:.3f}",
+    ):
+        assert token in text, f"{token} missing from the report"
+
+
 def test_threshold_sweep_is_monotone_in_recall(xy):
     X, y = xy
     X_train, X_test, y_train, y_test = evaluate.make_splits(X, y)

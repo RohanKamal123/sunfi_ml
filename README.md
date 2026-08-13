@@ -593,6 +593,9 @@ python -m src.run_pipeline --quick
 
 # Tests, including the anti-leakage guarantees
 python -m pytest tests/ -v
+
+# Plain-language PDF report (reads its numbers from reports/results/)
+python -m src.report
 ```
 
 Or work through `notebooks/PCOS_Prediction.ipynb`, which walks the whole study with
